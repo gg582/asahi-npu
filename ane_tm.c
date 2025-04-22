@@ -3,7 +3,7 @@
 
 #include <linux/iopoll.h>
 
-#include "ane_tm.h"
+#include <drm/ane_tm.h>
 
 #define ANE_TQ_COUNT 8
 static const int TQ_PRTY_TABLE[ANE_TQ_COUNT] = { 0x1, 0x2, 0x3,	 0x4,
@@ -142,3 +142,7 @@ int ane_tm_execute(struct ane_device *ane, struct ane_request *req)
 
 	return err;
 }
+
+MODULE_AUTHOR("Eileen Yoon <eyn@gmx.com>");
+MODULE_DESCRIPTION("Apple Neural Engine driver");
+MODULE_LICENSE("Dual MIT/GPL");
