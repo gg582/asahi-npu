@@ -9,7 +9,7 @@ PWD := $(shell pwd)
 obj-m := ane.o  # Final output module will be ane.ko
 
 # Source files
-obj-y := ane_drv.o ane_tm.o  # Compile both source files into object files
+ane-y := ane_drv.o ane_tm.o  # Compile both source files into object files
 
 # Default target: Build the kernel module
 default:
