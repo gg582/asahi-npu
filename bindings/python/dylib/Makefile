@@ -1,7 +1,7 @@
 CC = gcc
 CFLAGS = -I. -I./include -Wall -Werror -Wextra \
 	-Wdeclaration-after-statement \
-	-O3 -std=gnu99
+	-O3 -std=gnu99 -lane
 
 LIBS = -I/usr/include/libane
 

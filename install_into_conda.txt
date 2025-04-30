@@ -1,0 +1,2 @@
+install libane_python.so ${CONDA_PREFIX}/lib/python$(python --version | cut -d ' ' -f 2 | cut -d '.' -f 1,2)/site-packages/
+and run setup.py 

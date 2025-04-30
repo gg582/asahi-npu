@@ -48,7 +48,7 @@ $(BUILD_DIR)/%.o : $(SRC_DIR)/%.c
 # Install headers and libraries
 install: all
 	install -d /usr/include/drm
-	install -m 0644 ane_accel.h ane.h ane_f16.h /usr/include/drm
+	install -m 0644 ane_utils.h ane_accel.h ane.h ane_f16.h /usr/include/drm
 	install -d $(LIB_DIR)
 	install -m 0755 $(SHARED_LIB) $(LIB_DIR)
 	install -m 0644 $(STATIC_LIB) $(LIB_DIR)
