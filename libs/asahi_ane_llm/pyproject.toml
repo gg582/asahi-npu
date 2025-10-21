@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=65", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "asahi-ane-llm"
+version = "0.1.0"
+description = "High level helpers for loading ONNX large language models onto the Asahi ANE driver"
+readme = "README.md"
+requires-python = ">=3.8"
+authors = [
+    { name = "Asahi Linux Project" },
+]
+dependencies = [
+    "onnx>=1.14",
+]
+keywords = ["asahi", "apple", "ane", "onnx", "llm" ]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX :: Linux",
+]
+
+[project.optional-dependencies]
+chat = [
+    "transformers>=4.36",
+    "sentencepiece>=0.1.99",
+    "accelerate>=0.21",
+]
+
+[project.urls]
+Homepage = "https://asahilinux.org/"
+Documentation = "https://github.com/AsahiLinux/asahi-npu"
+Source = "https://github.com/AsahiLinux/asahi-npu"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
