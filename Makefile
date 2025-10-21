@@ -9,7 +9,7 @@ PWD := $(shell pwd)
 obj-m := ane.o  # Final output module will be ane.ko
 
 # Source files
-ane-y := ane_drv.o ane_tm.o  # Compile both source files into object files
+ane-y := ane_drv.o ane_tm.o ane_onnx.o  # Compile driver, TM helper, and ONNX loader
 
 # Default target: Build the kernel module
 default:
