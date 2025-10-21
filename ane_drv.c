@@ -22,6 +22,8 @@
 
 #include "ane_onnx.h"
 
+#include "ane_onnx.h"
+
 #define CMD_BUF_BDX 0
 #define KRN_BUF_BDX 1
 
