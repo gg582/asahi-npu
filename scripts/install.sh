@@ -57,5 +57,5 @@ echo "--- Installation Complete ---"
 echo "Current DKMS status:"
 dkms status
 echo ""
-echo "To load the module immediately (replace 'ane_drv' with the module name from dkms.conf):"
-echo "  modprobe ane_drv"
+echo "To load the module immediately (replace 'ane' with the module name from dkms.conf):"
+echo "  modprobe ane"
