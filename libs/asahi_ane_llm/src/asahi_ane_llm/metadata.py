@@ -37,12 +37,23 @@ def parse_ane_metadata(model_bytes: bytes) -> AneModelMetadata:
     model = onnx.load_from_string(model_bytes)
     metadata = {prop.key: prop.value for prop in model.metadata_props}
 
+    required_keys = ("ane.microcode.b64", "ane.td_size", "ane.td_count")
+    missing_keys = [key for key in required_keys if key not in metadata]
+    if missing_keys:  # pragma: no cover - metadata errors
+        missing_list = ", ".join(sorted(missing_keys))
+        raise RuntimeError(
+            "The supplied ONNX model is missing the Asahi-specific metadata "
+            f"entries: {missing_list}.\n"
+            "Ensure you converted the model with the ANE tooling so that the "
+            "microcode and tile descriptor metadata are embedded."
+        )
+
     try:
         microcode_b64 = metadata["ane.microcode.b64"].encode("ascii")
         td_size = int(metadata["ane.td_size"], 10)
         td_count = int(metadata["ane.td_count"], 10)
-    except KeyError as exc:  # pragma: no cover - metadata errors
-        raise RuntimeError(f"Missing required metadata entry: {exc}") from exc
+    except ValueError as exc:  # pragma: no cover - metadata errors
+        raise RuntimeError(f"Invalid metadata entry: {exc}") from exc
 
     weights_b64 = metadata.get("ane.weights.b64", "").encode("ascii")
 
