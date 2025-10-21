@@ -27,4 +27,9 @@ python examples/tinyllama_chat.py \
 ```
 
 Use `--skip-cpu-fallback` if you only want to upload the ONNX model and defer
-text generation to a hardware backed pipeline.
+text generation to a hardware backed pipeline. When the ANE metadata is
+missing, the script automatically prefers the `onnxruntime-genai` backend so you
+can still drive the conversation with the exact ONNX export. Pass
+`--fallback-backend transformers` to force the Hugging Face fallback or
+`--fallback-backend onnxruntime` to fail if the ONNX runtime extras are not
+available.

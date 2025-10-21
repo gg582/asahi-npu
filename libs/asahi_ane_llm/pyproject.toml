@@ -27,6 +27,9 @@ chat = [
     "sentencepiece>=0.1.99",
     "accelerate>=0.21",
 ]
+onnxruntime = [
+    "onnxruntime-genai>=0.3.0",
+]
 
 [project.urls]
 Homepage = "https://asahilinux.org/"
