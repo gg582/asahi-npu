@@ -17,8 +17,10 @@
 #include <drm/drm_gem.h>
 #include <drm/drm_ioctl.h>
 
-#include <drm/ane.h>
-#include <drm/ane_tm.h>
+#include "drm/ane.h"
+#include "drm/ane_tm.h"
+
+#include "ane_onnx.h"
 
 #include "ane_onnx.h"
 
