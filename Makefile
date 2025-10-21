@@ -9,7 +9,9 @@ PWD := $(shell pwd)
 obj-m := ane.o  # Final output module will be ane.ko
 
 # Source files
-ane-y := ane_drv.o ane_tm.o  # Compile both source files into object files
+ane-y := ane_drv.o ane_tm.o ane_onnx.o  # Compile driver, TM helper, and ONNX loader
+
+ccflags-y += -I$(src)/include
 
 # Default target: Build the kernel module
 default:
@@ -34,4 +36,19 @@ check:
 # Additional target for building kernel modules directly
 modules:
 	@make -C $(KERNELDIR) M=$(PWD) modules
+
+.PHONY: sign
+sign:
+	@if [ -n "$(SIGNING_KEY)" ] && [ -n "$(SIGNING_CERT)" ]; then \
+		sign_tool="$(if $(SIGNING_TOOL),$(SIGNING_TOOL),$(KERNELDIR)/scripts/sign-file)"; \
+		echo "Signing module with $$sign_tool"; \
+		if [ -x "$$sign_tool" ]; then \
+			$$sign_tool sha256 $(SIGNING_KEY) $(SIGNING_CERT) $(PWD)/ane.ko; \
+		else \
+			echo "sign target: signing helper '$$sign_tool' is not executable" >&2; \
+			exit 1; \
+		fi; \
+	else \
+		echo "No SIGNING_KEY/SIGNING_CERT provided; skipping module signing."; \
+	fi
 
