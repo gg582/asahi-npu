@@ -146,3 +146,21 @@ python3 tools/convert_to_ane.py \
 The converter still accepts manual overrides via `--td-size` and `--td-count`
 when the tile descriptor spec omits them. If you already have the compiled
 artefacts you can continue using `--microcode`/`--artifact-root` as before.
+
+For a streamlined workflow, `tools/convert_to_apple_npu.py` exposes only the
+JSON-driven options and assembles plus embeds the artefacts in a single
+command:
+
+```bash
+python3 tools/convert_to_apple_npu.py \
+    path/to/model.onnx \
+    --ane-schema schema.json \
+    --ane-program program.json \
+    --ane-tile-spec tile_desc.json \
+    --ane-weights-spec weights.json \
+    --ane-output-dir export/
+```
+
+Supply `--td-size` and `--td-count` when the tile spec omits size/count fields
+and the helper will reuse the assembled microcode while applying the explicit
+dimensions.
