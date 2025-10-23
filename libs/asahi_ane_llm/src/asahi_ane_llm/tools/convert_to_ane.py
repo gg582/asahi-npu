@@ -2,14 +2,21 @@
 
 from __future__ import annotations
 
-import base64
 import argparse
+import base64
 import json
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Mapping, Sequence
 
-from ..metadata import MissingAneMetadataError, parse_ane_metadata, with_ane_metadata
+if __package__ in {None, ""}:  # pragma: no cover - script execution guard
+    PACKAGE_SRC = Path(__file__).resolve().parents[3]
+    if str(PACKAGE_SRC) not in sys.path:
+        sys.path.insert(0, str(PACKAGE_SRC))
+
+from asahi_ane_llm.metadata import MissingAneMetadataError, parse_ane_metadata, with_ane_metadata
+from asahi_ane_llm.microcode.builder import MicrocodeBuildError, compile_from_spec
 
 
 class ConversionError(RuntimeError):
@@ -74,6 +81,48 @@ def _build_arg_parser() -> argparse.ArgumentParser:
             "the directory recursively and auto-selects microcode/weights/tile "
             "descriptor payloads when the explicit --microcode/--weights/"
             "--tile-descriptors options are omitted."
+        ),
+    )
+    parser.add_argument(
+        "--ane-schema",
+        type=Path,
+        help=(
+            "JSON schema describing the ANE opcode layout (see eiln/ane for "
+            "reverse engineered definitions). Providing this option along with "
+            "--ane-program assembles the microcode automatically."
+        ),
+    )
+    parser.add_argument(
+        "--ane-program",
+        type=Path,
+        help=(
+            "JSON document listing the ANE instructions to assemble. Must be "
+            "paired with --ane-schema."
+        ),
+    )
+    parser.add_argument(
+        "--ane-tile-spec",
+        type=Path,
+        help=(
+            "Optional JSON description of the tile descriptor table. When "
+            "provided alongside --ane-schema/--ane-program the helper emits the "
+            "tile descriptor payload automatically."
+        ),
+    )
+    parser.add_argument(
+        "--ane-weights-spec",
+        type=Path,
+        help=(
+            "Optional JSON description of the ANE weights blob to embed when "
+            "assembling the microcode."
+        ),
+    )
+    parser.add_argument(
+        "--ane-output-dir",
+        type=Path,
+        help=(
+            "Directory where assembled artefacts should be written when using "
+            "--ane-schema/--ane-program."
         ),
     )
     parser.add_argument(
@@ -324,6 +373,13 @@ def convert_model(args: argparse.Namespace) -> Path:
     microcode_path: Path | None = args.microcode
     weights_path: Path | None = args.weights
     tile_descriptor_path: Path | None = args.tile_descriptors
+    builder_used = False
+    builder_outputs: dict[str, Path] = {}
+    microcode_bytes: bytes | None = None
+    weights_bytes: bytes | None = None
+    td_bytes: bytes | None = None
+    td_size: int | None = None
+    td_count: int | None = None
 
     if args.bundle:
         bundle = AneBundle.from_path(args.bundle)
@@ -335,6 +391,11 @@ def convert_model(args: argparse.Namespace) -> Path:
             "--td-size": args.td_size,
             "--td-count": args.td_count,
             "--artifact-root": args.artifact_root,
+            "--ane-schema": args.ane_schema,
+            "--ane-program": args.ane_program,
+            "--ane-tile-spec": args.ane_tile_spec,
+            "--ane-weights-spec": args.ane_weights_spec,
+            "--ane-output-dir": args.ane_output_dir,
         }
         conflicting = [flag for flag, value in conflicts.items() if value is not None]
         if conflicting:
@@ -350,84 +411,171 @@ def convert_model(args: argparse.Namespace) -> Path:
         td_size = bundle.td_size
         td_count = bundle.td_count
     else:
-        auto_report: list[str] = []
+        builder_requested = any(
+            value is not None
+            for value in (
+                args.ane_schema,
+                args.ane_program,
+                args.ane_tile_spec,
+                args.ane_weights_spec,
+                args.ane_output_dir,
+            )
+        )
 
-        if args.artifact_root:
-            if not args.artifact_root.is_dir():
+        if builder_requested:
+            if args.ane_schema is None or args.ane_program is None:
                 raise ConversionError(
-                    f"Artifact root '{args.artifact_root}' is not a directory"
+                    "--ane-schema and --ane-program must be provided together when "
+                    "assembling ANE microcode"
                 )
 
-            auto_microcode = _select_artifact(
-                root=args.artifact_root,
-                description="microcode",
-                flag="--microcode",
-                suffixes=(".tsk", ".tsk.bin", ".microcode", ".microcode.bin"),
-                keyword_sets=(("microcode",), ("tsk",)),
-            )
-            if auto_microcode and not microcode_path:
-                microcode_path = auto_microcode
-                auto_report.append(f"microcode -> {auto_microcode}")
+            builder_conflicts = {
+                "--microcode": args.microcode,
+                "--weights": args.weights,
+                "--tile-descriptors": args.tile_descriptors,
+                "--artifact-root": args.artifact_root,
+            }
+            conflicting = [
+                flag for flag, value in builder_conflicts.items() if value is not None
+            ]
+            if conflicting:
+                flags = ", ".join(conflicting)
+                raise ConversionError(
+                    "When assembling ANE artefacts from JSON specs the following "
+                    f"options must be omitted: {flags}"
+                )
 
-            auto_weights = _select_artifact(
-                root=args.artifact_root,
-                description="weights",
-                flag="--weights",
-                suffixes=(".weights", ".weights.bin", ".aneweights", ".aneweights.bin"),
-                keyword_sets=(("weight",),),
-            )
-            if auto_weights and not weights_path:
-                weights_path = auto_weights
-                auto_report.append(f"weights -> {auto_weights}")
+            _ensure_file(args.ane_schema, "ANE schema file")
+            _ensure_file(args.ane_program, "ANE program file")
+            if args.ane_tile_spec:
+                _ensure_file(args.ane_tile_spec, "ANE tile descriptor spec")
+            if args.ane_weights_spec:
+                _ensure_file(args.ane_weights_spec, "ANE weights spec")
 
-            auto_tile = _select_artifact(
-                root=args.artifact_root,
-                description="tile descriptor",
-                flag="--tile-descriptors",
-                suffixes=(
-                    ".td.bin",
-                    ".tile_desc.bin",
-                    ".tile_descriptors.bin",
-                    ".tiledesc.bin",
-                    ".tds",
-                    ".ane.td",
-                ),
-                keyword_sets=(("tile", "desc"),),
-            )
-            if auto_tile and not tile_descriptor_path:
-                tile_descriptor_path = auto_tile
-                auto_report.append(f"tile descriptors -> {auto_tile}")
+            try:
+                artifacts = compile_from_spec(
+                    schema_path=args.ane_schema,
+                    program_path=args.ane_program,
+                    tile_spec_path=args.ane_tile_spec,
+                    weights_spec_path=args.ane_weights_spec,
+                    output_dir=args.ane_output_dir,
+                )
+            except MicrocodeBuildError as exc:
+                raise ConversionError(f"Failed to assemble ANE artefacts: {exc}") from exc
 
-            if auto_report:
+            builder_used = True
+            builder_outputs = dict(artifacts.outputs)
+            microcode_bytes = artifacts.microcode
+            weights_bytes = artifacts.weights
+            td_bytes = artifacts.tile_descriptors
+            td_size = artifacts.td_size
+            td_count = artifacts.td_count
+
+            if builder_outputs:
                 print(
-                    "Auto-detected ANE artefacts:\n" + "\n".join(f"  {line}" for line in auto_report)
+                    "Assembled ANE artefacts:\n"
+                    + "\n".join(
+                        f"  {name:>16} -> {path}" for name, path in builder_outputs.items()
+                    )
+                )
+        else:
+            auto_report: list[str] = []
+
+            if args.artifact_root:
+                if not args.artifact_root.is_dir():
+                    raise ConversionError(
+                        f"Artifact root '{args.artifact_root}' is not a directory"
+                    )
+
+                auto_microcode = _select_artifact(
+                    root=args.artifact_root,
+                    description="microcode",
+                    flag="--microcode",
+                    suffixes=(".tsk", ".tsk.bin", ".microcode", ".microcode.bin"),
+                    keyword_sets=(("microcode",), ("tsk",)),
+                )
+                if auto_microcode and not microcode_path:
+                    microcode_path = auto_microcode
+                    auto_report.append(f"microcode -> {auto_microcode}")
+
+                auto_weights = _select_artifact(
+                    root=args.artifact_root,
+                    description="weights",
+                    flag="--weights",
+                    suffixes=(
+                        ".weights",
+                        ".weights.bin",
+                        ".aneweights",
+                        ".aneweights.bin",
+                    ),
+                    keyword_sets=(("weight",),),
+                )
+                if auto_weights and not weights_path:
+                    weights_path = auto_weights
+                    auto_report.append(f"weights -> {auto_weights}")
+
+                auto_tile = _select_artifact(
+                    root=args.artifact_root,
+                    description="tile descriptor",
+                    flag="--tile-descriptors",
+                    suffixes=(
+                        ".td.bin",
+                        ".tile_desc.bin",
+                        ".tile_descriptors.bin",
+                        ".tiledesc.bin",
+                        ".tds",
+                        ".ane.td",
+                    ),
+                    keyword_sets=(("tile", "desc"),),
+                )
+                if auto_tile and not tile_descriptor_path:
+                    tile_descriptor_path = auto_tile
+                    auto_report.append(f"tile descriptors -> {auto_tile}")
+
+                if auto_report:
+                    print(
+                        "Auto-detected ANE artefacts:\n"
+                        + "\n".join(f"  {line}" for line in auto_report)
+                    )
+
+            if not microcode_path:
+                raise ConversionError(
+                    "Specify --microcode, provide --bundle, or assemble the ANE "
+                    "artefacts with --ane-schema/--ane-program"
                 )
 
-        if not microcode_path:
-            raise ConversionError(
-                "Specify --microcode or provide a --bundle exported by the ANE toolchain"
+            _ensure_file(microcode_path, "Microcode file")
+
+            if weights_path:
+                _ensure_file(weights_path, "Weights file")
+            if tile_descriptor_path:
+                _ensure_file(tile_descriptor_path, "Tile descriptor file")
+
+            microcode_bytes = microcode_path.read_bytes()
+            weights_bytes = weights_path.read_bytes() if weights_path else None
+            td_bytes = (
+                tile_descriptor_path.read_bytes() if tile_descriptor_path else None
             )
 
-        _ensure_file(microcode_path, "Microcode file")
+            td_size, td_count = _infer_td_parameters(
+                td_bytes=td_bytes, td_size=args.td_size, td_count=args.td_count
+            )
 
-        if weights_path:
-            _ensure_file(weights_path, "Weights file")
-        if tile_descriptor_path:
-            _ensure_file(tile_descriptor_path, "Tile descriptor file")
-
-        microcode_bytes = microcode_path.read_bytes()
-        weights_bytes = weights_path.read_bytes() if weights_path else None
-        td_bytes = (
-            tile_descriptor_path.read_bytes() if tile_descriptor_path else None
-        )
-
-        td_size, td_count = _infer_td_parameters(
-            td_bytes=td_bytes, td_size=args.td_size, td_count=args.td_count
-        )
+    if builder_used:
+        if args.td_size is not None:
+            td_size = args.td_size
+        if args.td_count is not None:
+            td_count = args.td_count
 
     if args.bundle and bundle is not None:
         td_size = bundle.td_size
         td_count = bundle.td_count
+
+    if td_size is None or td_count is None:
+        raise ConversionError(
+            "Tile descriptor size/count are missing. Provide --td-size and --td-count "
+            "or include a tile descriptor spec."
+        )
 
     try:
         parse_ane_metadata(model_bytes)
@@ -470,6 +618,29 @@ def convert_model(args: argparse.Namespace) -> Path:
             if td_bytes is not None
             else "not provided"
         )
+    elif builder_used:
+        if "microcode" in builder_outputs:
+            microcode_source = str(builder_outputs["microcode"])
+        else:
+            microcode_source = "assembled from JSON specs"
+
+        if weights_bytes:
+            weights_source = (
+                str(builder_outputs["weights"])
+                if "weights" in builder_outputs
+                else "assembled from JSON specs"
+            )
+        else:
+            weights_source = "not provided"
+
+        if td_bytes is not None:
+            td_source = (
+                str(builder_outputs["tile_descriptors"])
+                if "tile_descriptors" in builder_outputs
+                else "assembled from JSON specs"
+            )
+        else:
+            td_source = "not provided"
     else:
         microcode_source = str(microcode_path)
         weights_source = str(weights_path) if weights_path else "not provided"

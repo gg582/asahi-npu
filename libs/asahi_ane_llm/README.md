@@ -94,13 +94,55 @@ python3 tools/convert_to_ane.py \
 The helper prints the artefacts it discovered before embedding them so you can
 double-check the selection.
 
-### Obtaining ANE microcode
+### Assembling ANE microcode from JSON specs
 
-The converter does **not** synthesize ANE microcode or tile descriptors. Those
-payloads must be produced by the proprietary Apple toolchain or an equivalent
-third-party compiler such as the reverse engineered work hosted in
-[`eiln/ane`](https://github.com/eiln/ane). Clone and build the external
-toolchain separately, then supply the generated `.tsk`, tile descriptor, and
-optional weight blobs to the converter (either explicitly or through
-`--artifact-root`). Without these artefacts the driver cannot execute the ONNX
-model.
+Reverse engineering the ANE instruction set is an ongoing effort. To make the
+process less painful the repository ships a standalone assembler that consumes
+JSON descriptions derived from projects such as
+[`eiln/ane`](https://github.com/eiln/ane). Feed the schema and program
+descriptions into `tools/build_microcode.py` to generate the microcode, tile
+descriptor table, and optional weights:
+
+```bash
+python3 tools/build_microcode.py \
+    schema.json \
+    program.json \
+    --tile-spec tile_desc.json \
+    --weights-spec weights.json \
+    --output-dir export/
+```
+
+* `schema.json` describes the opcode layout (word size, opcode field position,
+  per-instruction field shifts, and defaults).
+* `program.json` is an array where each element defines an instruction using the
+  names from the schema. Every entry supports an optional `repeat` property to
+  emit the same word multiple times.
+* `tile_desc.json` can either provide a base64-encoded payload or list the
+  entries individually. The helper infers the tile descriptor size/count when
+  possible.
+* `weights.json` accepts either `data_b64` or a numeric list together with the
+  word size/endian information.
+
+All JSON documents use standard base64 with URL-safe `-`/`_` characters. Refer
+to the docstrings in `asahi_ane_llm.microcode.schema` and
+`asahi_ane_llm.microcode.builder` for the full specification. The assembler also
+produces `.tsk`, tile descriptor, and weight files inside `--output-dir` so you
+can inspect the generated artefacts before embedding them.
+
+`tools/convert_to_ane.py` integrates with the assembler directly. Instead of
+pointing at prebuilt binaries you can provide the JSON specs and let the helper
+compile everything in one go:
+
+```bash
+python3 tools/convert_to_ane.py \
+    path/to/model.onnx \
+    --ane-schema schema.json \
+    --ane-program program.json \
+    --ane-tile-spec tile_desc.json \
+    --ane-weights-spec weights.json \
+    --ane-output-dir export/
+```
+
+The converter still accepts manual overrides via `--td-size` and `--td-count`
+when the tile descriptor spec omits them. If you already have the compiled
+artefacts you can continue using `--microcode`/`--artifact-root` as before.
