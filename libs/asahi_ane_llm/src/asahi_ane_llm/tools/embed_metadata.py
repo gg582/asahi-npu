@@ -35,6 +35,11 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         help="Number of tile descriptor entries produced by the ANE compiler.",
     )
     parser.add_argument(
+        "--tile-descriptors",
+        type=Path,
+        help="Optional tile descriptor binary to embed alongside the metadata.",
+    )
+    parser.add_argument(
         "--weights",
         type=Path,
         help="Optional ANE weights blob to embed alongside the microcode.",
@@ -67,6 +72,9 @@ def main(argv: list[str] | None = None) -> int:
 
     model_bytes = args.input.read_bytes()
     microcode = args.microcode.read_bytes()
+    tile_descriptors = (
+        args.tile_descriptors.read_bytes() if args.tile_descriptors else None
+    )
     weights = args.weights.read_bytes() if args.weights else None
 
     updated_model = with_ane_metadata(
@@ -74,6 +82,7 @@ def main(argv: list[str] | None = None) -> int:
         microcode=microcode,
         td_size=args.td_size,
         td_count=args.td_count,
+        tile_descriptors=tile_descriptors,
         weights=weights,
     )
 
@@ -89,6 +98,7 @@ def main(argv: list[str] | None = None) -> int:
         f"  microcode    : {args.microcode}\n"
         f"  td size      : {args.td_size}\n"
         f"  td count     : {args.td_count}\n"
+        f"  tile desc    : {args.tile_descriptors or 'not provided'}\n"
         f"  weights      : {args.weights or 'not provided'}"
     )
 

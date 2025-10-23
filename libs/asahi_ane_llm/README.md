@@ -146,3 +146,28 @@ python3 tools/convert_to_ane.py \
 The converter still accepts manual overrides via `--td-size` and `--td-count`
 when the tile descriptor spec omits them. If you already have the compiled
 artefacts you can continue using `--microcode`/`--artifact-root` as before.
+
+For a streamlined workflow, `tools/convert_to_apple_npu.py` exposes only the
+JSON-driven options and assembles plus embeds the artefacts in a single
+command:
+
+```bash
+python3 tools/convert_to_apple_npu.py \
+    path/to/model.onnx \
+    --ane-schema schema.json \
+    --ane-program program.json \
+    --ane-tile-spec tile_desc.json \
+    --ane-weights-spec weights.json \
+    --ane-output-dir export/
+```
+
+Supply `--td-size` and `--td-count` when the tile spec omits size/count fields
+and the helper will reuse the assembled microcode while applying the explicit
+dimensions. Add `--emit-json-specs extracted_specs/` to decode the ANE metadata
+from the converted ONNX model and write `bundle.json`, `microcode.json`,
+`tile_desc.json`, and `weights.json`. When the original model does not carry
+tile descriptors or weights the helper still emits placeholder JSON files with
+empty base64 strings alongside the recorded tile descriptor size/count so you
+can fill in the data manually. The exported JSON documents reuse the formats
+consumed by `tools/build_microcode.py`, making it easy to round-trip an ONNX
+payload into editable metadata without crafting the files manually.

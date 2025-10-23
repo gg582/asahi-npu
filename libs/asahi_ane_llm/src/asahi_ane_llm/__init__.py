@@ -2,8 +2,10 @@
 
 from .device import ANEDevice, AneBuffer, AneIoctlError
 from .metadata import (
+    AneMetadataPayloads,
     AneModelMetadata,
     MissingAneMetadataError,
+    extract_ane_payloads,
     parse_ane_metadata,
     with_ane_metadata,
 )
@@ -13,8 +15,10 @@ __all__ = [
     "ANEDevice",
     "AneBuffer",
     "AneIoctlError",
+    "AneMetadataPayloads",
     "AneModelMetadata",
     "MissingAneMetadataError",
+    "extract_ane_payloads",
     "parse_ane_metadata",
     "AneOnnxSubmission",
     "submit_onnx_model",
