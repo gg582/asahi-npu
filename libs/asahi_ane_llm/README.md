@@ -163,4 +163,9 @@ python3 tools/convert_to_apple_npu.py \
 
 Supply `--td-size` and `--td-count` when the tile spec omits size/count fields
 and the helper will reuse the assembled microcode while applying the explicit
-dimensions.
+dimensions. Add `--emit-json-specs extracted_specs/` to decode the ANE metadata
+from the converted ONNX model and write `bundle.json`, `microcode.json`,
+`tile_desc.json`, and `weights.json` (when weights are present). The exported
+JSON documents reuse the formats consumed by `tools/build_microcode.py`, making
+it easy to round-trip an ONNX payload into editable metadata without crafting
+the files manually.
