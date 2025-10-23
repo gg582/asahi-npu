@@ -1,0 +1,29 @@
+{
+  "name": "build_microcode",
+  "script": "tools/build_microcode.py",
+  "description": "Dependency metadata for the ANE microcode assembler helper.",
+  "python": ">=3.8",
+  "dependencies": [
+    {
+      "name": "asahi-ane-llm",
+      "type": "local",
+      "path": "../libs/asahi_ane_llm",
+      "reason": "Provides the microcode builder that mirrors the ANE schemas published in eiln/ane."
+    }
+  ],
+  "transitive_dependencies": [
+    {
+      "name": "onnx",
+      "specifier": ">=1.14",
+      "source": "pyproject.toml of asahi-ane-llm"
+    }
+  ],
+  "standard_library_modules": [
+    "argparse",
+    "base64",
+    "dataclasses",
+    "json",
+    "pathlib",
+    "typing"
+  ]
+}
