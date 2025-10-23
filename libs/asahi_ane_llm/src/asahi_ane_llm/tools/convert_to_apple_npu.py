@@ -100,38 +100,46 @@ def _write_json_specs(model_bytes: bytes, output_dir: Path) -> list[tuple[str, P
         outputs.append((label, path))
 
     microcode_b64 = _encode_b64(payloads.microcode)
+    if payloads.tile_descriptors is not None:
+        tile_desc_b64: str | None = _encode_b64(payloads.tile_descriptors)
+        tile_desc_json_b64 = tile_desc_b64
+    else:
+        tile_desc_b64 = None
+        tile_desc_json_b64 = ""
+
+    if payloads.weights is not None:
+        weights_b64: str | None = _encode_b64(payloads.weights)
+        weights_json_b64 = weights_b64
+    else:
+        weights_b64 = None
+        weights_json_b64 = ""
+
     bundle_payload: dict[str, object] = {
         "microcode_b64": microcode_b64,
         "td_size": payloads.td_size,
         "td_count": payloads.td_count,
-    }
-
-    if payloads.tile_descriptors is not None:
-        tile_desc_b64 = _encode_b64(payloads.tile_descriptors)
-        bundle_payload["tile_descriptors"] = {
+        "tile_descriptors": {
             "b64": tile_desc_b64,
             "entry_size": payloads.td_size,
             "count": payloads.td_count,
-        }
-    if payloads.weights is not None:
-        bundle_payload["weights_b64"] = _encode_b64(payloads.weights)
+        },
+    }
+
+    bundle_payload["weights_b64"] = weights_b64 or ""
 
     _write("bundle", "bundle.json", bundle_payload)
     _write("microcode_json", "microcode.json", {"data_b64": microcode_b64})
+    _write(
+        "tile_desc_json",
+        "tile_desc.json",
+        {
+            "data_b64": tile_desc_json_b64,
+            "entry_size": payloads.td_size,
+            "entry_count": payloads.td_count,
+        },
+    )
 
-    if payloads.tile_descriptors is not None:
-        _write(
-            "tile_desc_json",
-            "tile_desc.json",
-            {
-                "data_b64": _encode_b64(payloads.tile_descriptors),
-                "entry_size": payloads.td_size,
-                "entry_count": payloads.td_count,
-            },
-        )
-
-    if payloads.weights is not None:
-        _write("weights_json", "weights.json", {"data_b64": _encode_b64(payloads.weights)})
+    _write("weights_json", "weights.json", {"data_b64": weights_json_b64})
 
     return outputs
 

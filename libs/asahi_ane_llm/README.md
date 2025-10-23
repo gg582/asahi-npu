@@ -165,7 +165,9 @@ Supply `--td-size` and `--td-count` when the tile spec omits size/count fields
 and the helper will reuse the assembled microcode while applying the explicit
 dimensions. Add `--emit-json-specs extracted_specs/` to decode the ANE metadata
 from the converted ONNX model and write `bundle.json`, `microcode.json`,
-`tile_desc.json`, and `weights.json` (when weights are present). The exported
-JSON documents reuse the formats consumed by `tools/build_microcode.py`, making
-it easy to round-trip an ONNX payload into editable metadata without crafting
-the files manually.
+`tile_desc.json`, and `weights.json`. When the original model does not carry
+tile descriptors or weights the helper still emits placeholder JSON files with
+empty base64 strings alongside the recorded tile descriptor size/count so you
+can fill in the data manually. The exported JSON documents reuse the formats
+consumed by `tools/build_microcode.py`, making it easy to round-trip an ONNX
+payload into editable metadata without crafting the files manually.
