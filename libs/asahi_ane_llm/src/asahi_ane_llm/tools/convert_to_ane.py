@@ -589,6 +589,7 @@ def convert_model(args: argparse.Namespace) -> Path:
         microcode=microcode_bytes,
         td_size=td_size,
         td_count=td_count,
+        tile_descriptors=td_bytes,
         weights=weights_bytes,
     )
 

@@ -1,0 +1,24 @@
+name: build_microcode
+script: tools/build_microcode.py
+description: >-
+  Dependency summary for the ANE microcode assembler helper that keeps parity
+  with the schema conventions documented in the eiln/ane GitHub repository.
+python: ">=3.8"
+dependencies:
+  - name: asahi-ane-llm
+    type: local
+    path: ../libs/asahi_ane_llm
+    reason: >-
+      Hosts the microcode builder utilities consumed by build_microcode.py and
+      aligns with the opcode schema used in eiln/ane.
+transitive_dependencies:
+  - name: onnx
+    specifier: ">=1.14"
+    source: pyproject.toml of asahi-ane-llm
+standard_library_modules:
+  - argparse
+  - base64
+  - dataclasses
+  - json
+  - pathlib
+  - typing

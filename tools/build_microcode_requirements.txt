@@ -1,0 +1,4 @@
+# Direct dependencies for tools/build_microcode.py
+-e ../libs/asahi_ane_llm
+
+# asahi-ane-llm pulls in onnx>=1.14 via its pyproject.toml.
