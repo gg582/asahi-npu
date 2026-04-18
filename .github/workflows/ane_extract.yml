@@ -1,0 +1,59 @@
+name: ANE Microcode Extraction
+
+on:
+  workflow_dispatch: # Allows manual triggering from the Actions tab
+
+jobs:
+  generate-hwx:
+    runs-on: macos-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: pip install coremltools
+
+      - name: Create Minimal ReLU Model
+        run: |
+          python <<EOF
+          import coremltools as ct
+          from coremltools.models.neural_network import NeuralNetworkBuilder
+          from coremltools.models import datatypes
+
+          # 1. Define input and output features
+          # Using a 1x1x1 array to minimize binary size
+          input_features = [('input', datatypes.Array(1, 1, 1))]
+          output_features = [('output', datatypes.Array(1, 1, 1))]
+
+          # 2. Build a simple neural network with a single ReLU layer
+          builder = NeuralNetworkBuilder(input_features, output_features)
+          builder.add_relu(name='relu_layer', input_name='input', output_name='output')
+
+          # 3. Save the model
+          model = ct.models.MLModel(builder.spec)
+          model.save('minimal_relu.mlmodel')
+          print("Minimal ReLU model saved as minimal_relu.mlmodel")
+          EOF
+
+      - name: Compile Model to ANE Binary
+        run: |
+          # Use Apple's AOT compiler to generate the .mlmodelc folder
+          xcrun coremlcompiler compile minimal_relu.mlmodel .
+          
+          # List files to verify model.hwx location
+          find minimal_relu.mlmodelc -name "model.hwx"
+
+      - name: Upload hwx Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ane-microcode-relu
+          path: |
+            minimal_relu.mlmodelc/model.hwx
+            minimal_relu.mlmodelc/weights/model.hwx
+          # Note: The path can vary slightly depending on the compiler version
