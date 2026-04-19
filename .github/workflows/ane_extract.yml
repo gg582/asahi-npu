@@ -37,7 +37,7 @@ jobs:
               output_features,
               disable_rank5_shape_mapping=True,
           )
-          builder.add_gelu(name='relu_layer', input_name='input', output_name='output')
+          builder.add_gelu(name='gelu_layer', input_name='input', output_name='output')
 
           # 3. Save the model
           model = ct.models.MLModel(builder.spec)
