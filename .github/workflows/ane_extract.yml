@@ -32,7 +32,11 @@ jobs:
           output_features = [('output', datatypes.Array(1, 1, 1))]
 
           # 2. Build a simple neural network with a single ReLU layer
-          builder = NeuralNetworkBuilder(input_features, output_features)
+          builder = NeuralNetworkBuilder(
+              input_features,
+              output_features,
+              disable_rank5_shape_mapping=True,
+          )
           builder.add_gelu(name='relu_layer', input_name='input', output_name='output')
 
           # 3. Save the model
