@@ -31,7 +31,7 @@ jobs:
           input_features = [('input', datatypes.Array(1, 1, 1))]
           output_features = [('output', datatypes.Array(1, 1, 1))]
 
-          # 2. Build a simple neural network with a single ReLU layer
+          # 2. Build a simple neural network with a single GELU layer
           builder = NeuralNetworkBuilder(
               input_features,
               output_features,
