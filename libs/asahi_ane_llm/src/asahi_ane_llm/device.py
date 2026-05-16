@@ -62,12 +62,11 @@ def DRM_IOWR(nr: int, struct_type: type[ctypes.Structure]) -> int:
 
 class DrmAneBoInit(ctypes.Structure):
     _fields_ = [
-        ("size", ctypes.c_uint64),
         ("handle", ctypes.c_uint32),
         ("pad", ctypes.c_uint32),
+        ("size", ctypes.c_uint64),
         ("offset", ctypes.c_uint64),
     ]
-
 
 class DrmAneBoFree(ctypes.Structure):
     _fields_ = [
@@ -75,21 +74,21 @@ class DrmAneBoFree(ctypes.Structure):
         ("pad", ctypes.c_uint32),
     ]
 
-
 class DrmAneSubmit(ctypes.Structure):
     _fields_ = [
-        ("handles", ctypes.c_uint32 * ANE_TILE_COUNT),
-        ("btsp_handle", ctypes.c_uint32),
-        ("tsk_size", ctypes.c_uint32),
+        ("tsk_size", ctypes.c_uint64),
         ("td_count", ctypes.c_uint32),
         ("td_size", ctypes.c_uint32),
+        ("handles", ctypes.c_uint32 * ANE_TILE_COUNT),
+        ("btsp_handle", ctypes.c_uint32),
         ("pad", ctypes.c_uint32),
     ]
 
 
-IOCTL_ANE_BO_INIT = DRM_IOWR(DRM_COMMAND_BASE + 0x0, DrmAneBoInit)
-IOCTL_ANE_BO_FREE = DRM_IOWR(DRM_COMMAND_BASE + 0x1, DrmAneBoFree)
-IOCTL_ANE_SUBMIT = DRM_IOWR(DRM_COMMAND_BASE + 0x2, DrmAneSubmit)
+
+IOCTL_ANE_BO_INIT = DRM_IOWR(DRM_COMMAND_BASE + 0x1, DrmAneBoInit)
+IOCTL_ANE_BO_FREE = DRM_IOWR(DRM_COMMAND_BASE + 0x2, DrmAneBoFree)
+IOCTL_ANE_SUBMIT = DRM_IOWR(DRM_COMMAND_BASE + 0x3, DrmAneSubmit)
 
 
 libc = ctypes.CDLL(None, use_errno=True)
