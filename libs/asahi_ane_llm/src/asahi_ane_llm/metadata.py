@@ -8,6 +8,8 @@ from dataclasses import dataclass
 
 import onnx
 
+from . import konnx
+from .konnx import KonnxFormatError
 
 @dataclass(frozen=True)
 class AneModelMetadata:
@@ -70,6 +72,19 @@ def _require_metadata_entries(metadata: dict[str, str]) -> dict[str, str]:
 
 def parse_ane_metadata(model_bytes: bytes) -> AneModelMetadata:
     """Parse the metadata stored alongside the ONNX payload."""
+    if konnx.is_konnx_blob(model_bytes):
+        try:
+            parsed = konnx.decode_konnx_blob(model_bytes)
+        except KonnxFormatError as exc:  # pragma: no cover - data validation
+            raise RuntimeError(f"Failed to parse KONNX payload: {exc}") from exc
+
+        return AneModelMetadata(
+            microcode_len=len(parsed.microcode),
+            weights_len=len(parsed.weights or b""),
+            td_size=parsed.header.td_size,
+            td_count=parsed.header.td_count,
+        )
+
     metadata = _require_metadata_entries(_load_metadata_map(model_bytes))
 
     try:
@@ -96,6 +111,20 @@ def parse_ane_metadata(model_bytes: bytes) -> AneModelMetadata:
 
 def extract_ane_payloads(model_bytes: bytes) -> AneMetadataPayloads:
     """Return the raw ANE metadata payloads stored inside an ONNX model."""
+
+    if konnx.is_konnx_blob(model_bytes):
+        try:
+            parsed = konnx.decode_konnx_blob(model_bytes)
+        except KonnxFormatError as exc:  # pragma: no cover - data validation
+            raise RuntimeError(f"Failed to parse KONNX payload: {exc}") from exc
+
+        return AneMetadataPayloads(
+            microcode=parsed.microcode,
+            tile_descriptors=parsed.tile_descriptors,
+            weights=parsed.weights,
+            td_size=parsed.header.td_size,
+            td_count=parsed.header.td_count,
+        )
 
     metadata = _require_metadata_entries(_load_metadata_map(model_bytes))
 
@@ -175,7 +204,9 @@ def with_ane_metadata(
             entry.value = value
 
     def _remove_metadata(key: str) -> None:
-        model.metadata_props[:] = [prop for prop in model.metadata_props if prop.key != key]
+        props = [prop for prop in model.metadata_props if prop.key != key]
+        model.metadata_props.clear()
+        model.metadata_props.extend(props)
 
     microcode_b64 = base64.b64encode(microcode, altchars=b"-_").decode("ascii")
     _set_metadata("ane.microcode.b64", microcode_b64)

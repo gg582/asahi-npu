@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import json
+import struct
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
@@ -75,6 +76,8 @@ def _compile_microcode(schema_path: Path, program_path: Path) -> bytes:
 
 
 def _compile_tile_descriptors(payload: Mapping[str, Any]) -> tuple[bytes, int, int]:
+    from .. import hw
+
     if "data_b64" in payload:
         td_bytes = _decode_base64_field(payload, field="data_b64")
         td_size = payload.get("entry_size")
@@ -82,46 +85,68 @@ def _compile_tile_descriptors(payload: Mapping[str, Any]) -> tuple[bytes, int, i
     else:
         entries_raw = payload.get("entries")
         if not isinstance(entries_raw, list):
-            raise MicrocodeBuildError(
-                "Tile descriptor spec must provide either 'data_b64' or an 'entries' list"
-            )
+            # Try if the payload itself is a list (for backward compatibility or direct list usage)
+            if isinstance(payload, list):
+                entries_raw = payload
+            else:
+                raise MicrocodeBuildError(
+                    "Tile descriptor spec must provide either 'data_b64' or an 'entries' list"
+                )
 
-        td_size = payload.get("entry_size")
-        if td_size is None:
-            raise MicrocodeBuildError(
-                "Tile descriptor spec that lists entries must define 'entry_size'"
-            )
+        td_size = payload.get("entry_size", 0x274) if isinstance(payload, Mapping) else 0x274
         try:
             entry_size = int(td_size)
         except (TypeError, ValueError) as exc:
             raise MicrocodeBuildError("'entry_size' must be an integer") from exc
-        if entry_size <= 0:
-            raise MicrocodeBuildError("'entry_size' must be positive")
 
         td_bytes = bytearray()
         entry_count = 0
         for index, entry in enumerate(entries_raw):
             repeat = 1
             if isinstance(entry, Mapping):
-                if "repeat" in entry:
-                    try:
-                        repeat = int(entry["repeat"])
-                    except (TypeError, ValueError) as exc:
-                        raise MicrocodeBuildError(
-                            f"Tile descriptor entry {index} repeat must be an integer"
-                        ) from exc
-                    if repeat <= 0:
-                        raise MicrocodeBuildError(
-                            f"Tile descriptor entry {index} repeat must be positive"
-                        )
-
+                repeat = int(entry.get("repeat", 1))
+                
                 if "bytes_b64" in entry or "data_b64" in entry:
                     blob = (
                         _decode_base64_field(entry, field="bytes_b64")
                         if "bytes_b64" in entry
                         else _decode_base64_field(entry, field="data_b64")
                     )
+                elif "registers" in entry or "binary_patches" in entry:
+                    # New structured format
+                    tmp = bytearray(entry_size)
+                    
+                    # 1. Apply binary patches first (e.g. DMA context)
+                    patches = entry.get("binary_patches", {})
+                    for offset_str, hex_data in patches.items():
+                        try:
+                            offset = int(offset_str, 0)
+                            data = bytes.fromhex(hex_data.replace(' ', '').replace('\n', ''))
+                            if offset + len(data) > entry_size:
+                                raise MicrocodeBuildError(f"Binary patch at {offset} exceeds entry_size")
+                            tmp[offset:offset+len(data)] = data
+                        except Exception as exc:
+                            raise MicrocodeBuildError(f"Invalid binary patch at '{offset_str}': {exc}") from exc
+
+                    # 2. Apply register assignments (can overwrite patches)
+                    regs = entry.get("registers", {})
+                    for reg_path, val in regs.items():
+                        # Support paths like "TD.W0" or "Common.InDim"
+                        try:
+                            parts = reg_path.split('.')
+                            if len(parts) == 2:
+                                cls_name, attr_name = parts
+                                target_cls = getattr(hw, cls_name)
+                                offset = getattr(target_cls, attr_name)
+                            else:
+                                offset = int(reg_path, 0)
+                            
+                            struct.pack_into('<I', tmp, offset, int(val, 0) if isinstance(val, str) else int(val))
+                        except Exception as exc:
+                            raise MicrocodeBuildError(f"Invalid register assignment '{reg_path}': {exc}") from exc
+                    blob = bytes(tmp)
                 elif "value" in entry:
+                    # ... (existing value logic)
                     try:
                         value = int(entry["value"])
                     except (TypeError, ValueError) as exc:
@@ -142,33 +167,37 @@ def _compile_tile_descriptors(payload: Mapping[str, Any]) -> tuple[bytes, int, i
                                 f"Tile descriptor entry {index} unsigned value does not fit"
                             )
                     entry_endianness = str(
-                        entry.get("endianness", payload.get("endianness", "little"))
+                        entry.get("endianness", payload.get("endianness", "little") if isinstance(payload, Mapping) else "little")
                     )
-                    if entry_endianness not in {"little", "big"}:
-                        raise MicrocodeBuildError(
-                            "Tile descriptor endianness must be 'little' or 'big'"
-                        )
                     blob = value.to_bytes(entry_size, entry_endianness)
                 else:
-                    raise MicrocodeBuildError(
-                        f"Tile descriptor entry {index} must provide 'bytes_b64' or 'value'"
-                    )
-            elif isinstance(entry, str):
+                    # Support the "op": "dispatch" style if needed, 
+                    # but for now let's focus on structured registers.
+                    # If it's an old style with "payload" list:
+                    if "payload" in entry:
+                        payload_data = entry["payload"]
+                        blob = bytes(payload_data)
+                        if len(blob) < entry_size:
+                            blob = blob + b'\x00' * (entry_size - len(blob))
+                    else:
+                        raise MicrocodeBuildError(
+                            f"Tile descriptor entry {index} must provide 'bytes_b64', 'registers', 'value' or 'payload'"
+                        )
+            else:
+                # Support raw bytes if entry is a base64 string
                 try:
                     blob = base64.b64decode(entry, altchars=b"-_", validate=True)
-                except Exception as exc:  # pragma: no cover - defensive path
+                except Exception:
                     raise MicrocodeBuildError(
-                        f"Tile descriptor entry {index} is not valid base64: {exc}"
-                    ) from exc
-            else:
-                raise MicrocodeBuildError(
-                    f"Tile descriptor entry {index} must be an object or base64 string"
-                )
+                        f"Tile descriptor entry {index} must be an object or base64 string"
+                    )
 
-            if len(blob) != entry_size:
-                raise MicrocodeBuildError(
-                    f"Tile descriptor entry {index} does not match entry_size {entry_size}"
+            if len(blob) > entry_size:
+                 raise MicrocodeBuildError(
+                    f"Tile descriptor entry {index} size {len(blob)} exceeds entry_size {entry_size}"
                 )
+            if len(blob) < entry_size:
+                blob = blob + b'\x00' * (entry_size - len(blob))
 
             td_bytes.extend(blob * repeat)
             entry_count += repeat

@@ -171,3 +171,26 @@ empty base64 strings alongside the recorded tile descriptor size/count so you
 can fill in the data manually. The exported JSON documents reuse the formats
 consumed by `tools/build_microcode.py`, making it easy to round-trip an ONNX
 payload into editable metadata without crafting the files manually.
+
+## The KONNX container
+
+While ONNX metadata can encode the ANE microcode, certain NPU-specific payloads
+benefit from a dedicated binary header. The KONNX format prefixes the ONNX
+payload with a fixed 80-byte header containing aligned offsets to the raw ANE
+microcode, tile descriptors, weights, and a copy of the ONNX payload. The driver
+understands both pure ONNX models and KONNX payloads automatically, allowing you
+to start testing operations that rely on native ANE instruction blobs without
+waiting for ONNX schema changes.
+
+Use `tools/convert_konnx.py` to wrap an ONNX model (with embedded ANE metadata)
+into a KONNX container or to unwrap a KONNX payload back into a plain ONNX file
+with metadata entries restored:
+
+```bash
+python3 tools/convert_konnx.py model.onnx          # emits model.konnx
+python3 tools/convert_konnx.py model.konnx --direction konnx-to-onnx
+```
+
+When converting from ONNX, make sure the model already contains the ANE metadata
+by running `tools/convert_to_ane.py` beforehand. The converter auto-detects the
+direction by inspecting the input file unless `--direction` is explicitly set.

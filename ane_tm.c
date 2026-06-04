@@ -2,6 +2,8 @@
 /* Copyright 2022 Eileen Yoon <eyn@gmx.com> */
 
 #include <linux/iopoll.h>
+#include <linux/device.h>
+#include <linux/module.h>
 
 #include "drm/ane_tm.h"
 

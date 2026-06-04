@@ -5,6 +5,7 @@
  * while the tile descriptor sizing information is stored as decimal strings.
  */
 
+#include <linux/build_bug.h>
 #include <linux/errno.h>
 #include <linux/kernel.h>
 #include <linux/kstrtox.h>
@@ -13,6 +14,8 @@
 #include <linux/types.h>
 
 #include "ane_onnx.h"
+
+static_assert(sizeof(struct ane_konnx_header) == ANE_KONNX_HEADER_SIZE);
 
 struct pb_reader {
         const u8 *ptr;
@@ -252,8 +255,108 @@ static int ane_parse_metadata_entry(const u8 *buf, size_t len,
         return 0;
 }
 
-int ane_onnx_translate(const void *data, size_t size,
-                       struct ane_onnx_payload *payload)
+static bool ane_konnx_has_header(const void *data, size_t size)
+{
+        const struct ane_konnx_header *hdr = data;
+
+        return size >= sizeof(*hdr) &&
+               !memcmp(hdr->magic, ANE_KONNX_MAGIC, sizeof(hdr->magic));
+}
+
+static int ane_konnx_copy_section(const void *data, size_t total_size,
+                                  u32 offset, u32 len, u8 **out,
+                                  size_t *out_len)
+{
+        const u8 *base = data;
+        u8 *dst;
+
+        if (!len)
+                return -EINVAL;
+        if ((size_t)offset + len > total_size)
+                return -EINVAL;
+
+        dst = kvzalloc(len, GFP_KERNEL);
+        if (!dst)
+                return -ENOMEM;
+
+        memcpy(dst, base + offset, len);
+        *out = dst;
+        *out_len = len;
+        return 0;
+}
+
+static int ane_konnx_translate_payload(const void *data, size_t size,
+                                       struct ane_onnx_payload *payload)
+{
+        const struct ane_konnx_header *hdr = data;
+        u32 header_size, td_size, td_count;
+        u32 micro_offset, micro_size;
+        u32 weights_offset, weights_size;
+        u32 tile_offset, tile_size;
+        u32 onnx_offset, onnx_size;
+        int ret;
+
+        header_size = le32_to_cpu(hdr->header_size);
+        if (header_size < sizeof(*hdr) || header_size > size)
+                return -EINVAL;
+
+        if (le16_to_cpu(hdr->version_major) != ANE_KONNX_VERSION_MAJOR)
+                return -EINVAL;
+
+        micro_offset = le32_to_cpu(hdr->microcode_offset);
+        micro_size = le32_to_cpu(hdr->microcode_size);
+        weights_offset = le32_to_cpu(hdr->weights_offset);
+        weights_size = le32_to_cpu(hdr->weights_size);
+        tile_offset = le32_to_cpu(hdr->tile_desc_offset);
+        tile_size = le32_to_cpu(hdr->tile_desc_size);
+        td_size = le32_to_cpu(hdr->td_size);
+        td_count = le32_to_cpu(hdr->td_count);
+        onnx_offset = le32_to_cpu(hdr->onnx_offset);
+        onnx_size = le32_to_cpu(hdr->onnx_size);
+
+        if (!micro_size || !td_size || !td_count)
+                return -EINVAL;
+
+        if (header_size > micro_offset || (size_t)micro_offset + micro_size > size)
+                return -EINVAL;
+
+        if (weights_size &&
+            ((size_t)weights_offset + weights_size > size ||
+             weights_offset < header_size))
+                return -EINVAL;
+
+        if (tile_size &&
+            ((size_t)tile_offset + tile_size > size ||
+             tile_offset < header_size))
+                return -EINVAL;
+
+        if (!onnx_size || (size_t)onnx_offset + onnx_size > size ||
+            onnx_offset < header_size)
+                return -EINVAL;
+
+        ret = ane_konnx_copy_section(data, size, micro_offset, micro_size,
+                                     (u8 **)&payload->microcode,
+                                     &payload->microcode_size);
+        if (ret)
+                return ret;
+
+        if (weights_size) {
+                ret = ane_konnx_copy_section(data, size, weights_offset,
+                                             weights_size,
+                                             (u8 **)&payload->weights,
+                                             &payload->weights_size);
+                if (ret)
+                        return ret;
+        }
+
+        payload->td_size = td_size;
+        payload->td_count = td_count;
+
+        return 0;
+}
+
+static int ane_onnx_translate_metadata(const void *data, size_t size,
+                                       struct ane_onnx_payload *payload)
 {
         struct pb_reader r = {
                 .ptr = data,
@@ -261,14 +364,12 @@ int ane_onnx_translate(const void *data, size_t size,
         };
         int ret;
 
-        memset(payload, 0, sizeof(*payload));
-
         while (r.ptr < r.end) {
                 u64 tag;
 
                 ret = pb_get_varint(&r, &tag);
                 if (ret)
-                        goto fail;
+                        return ret;
 
                 u32 field = tag >> 3;
                 u32 wire = tag & 7;
@@ -279,18 +380,18 @@ int ane_onnx_translate(const void *data, size_t size,
 
                         ret = pb_get_length_delimited(&r, &chunk, &chunk_len);
                         if (ret)
-                                goto fail;
+                                return ret;
 
                         if (field == 14) {
                                 ret = ane_parse_metadata_entry(chunk, chunk_len,
                                                                payload);
                                 if (ret)
-                                        goto fail;
+                                        return ret;
                         }
                 } else {
                         ret = pb_skip_field(&r, wire);
                         if (ret)
-                                goto fail;
+                                return ret;
                 }
         }
 
@@ -301,7 +402,24 @@ int ane_onnx_translate(const void *data, size_t size,
         else
                 ret = 0;
 
-fail:
+        return ret;
+}
+
+int ane_onnx_translate(const void *data, size_t size,
+                       struct ane_onnx_payload *payload)
+{
+        int ret;
+
+        memset(payload, 0, sizeof(*payload));
+
+        if (ane_konnx_has_header(data, size)) {
+                ret = ane_konnx_translate_payload(data, size, payload);
+                if (ret)
+                        ane_onnx_payload_cleanup(payload);
+                return ret;
+        }
+
+        ret = ane_onnx_translate_metadata(data, size, payload);
         if (ret)
                 ane_onnx_payload_cleanup(payload);
         return ret;

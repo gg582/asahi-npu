@@ -4,8 +4,8 @@ This directory hosts Python helpers that exercise the ANE DRM driver.
 
 ## onnx_submit.py
 
-Demonstrates how to push an ONNX model through the in-kernel ingestion path
-using the reusable helpers from `asahi_ane_llm`.
+Demonstrates how to push an ONNX/KONNX model through the in-kernel ingestion
+path using the reusable helpers from `asahi_ane_llm`.
 
 ```bash
 pip install -e libs/asahi_ane_llm

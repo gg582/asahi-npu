@@ -11,9 +11,9 @@ DRM_IOCTL_BASE = ord('d')
 def _IOWR(nr, size):
     return (3 << 30) | (DRM_IOCTL_BASE << 8) | (size << 16) | nr
 
-DRM_ANE_BO_INIT = 0x0
-DRM_ANE_BO_FREE = 0x1
-DRM_ANE_SUBMIT = 0x2
+DRM_ANE_BO_INIT = 0x1
+DRM_ANE_BO_FREE = 0x2
+DRM_ANE_SUBMIT = 0x3
 
 # struct drm_ane_bo_init { __u32 handle; __u32 pad; __u64 size; __u64 offset; };
 # Size = 4 + 4 + 8 + 8 = 24
@@ -180,7 +180,7 @@ def create_btsp_buf():
 
 # --- Main ---
 if __name__ == "__main__":
-    device_path = "/dev/dri/renderD128"
+    device_path = "/dev/dri/renderD129"
     print(f"Opening {device_path}...")
     fd = os.open(device_path, os.O_RDWR)
     

@@ -1,33 +1,25 @@
 // SPDX-License-Identifier: GPL-2.0-only OR MIT
 /* Copyright 2022 Eileen Yoon <eyn@gmx.com> */
 
-#include <linux/bitops.h>
 #include <linux/interrupt.h>
 #include <linux/iommu.h>
 #include <linux/module.h>
-#include <linux/mm.h>
 #include <linux/of_device.h>
 #include <linux/platform_device.h>
 #include <linux/pm_domain.h>
 #include <linux/pm_runtime.h>
-#include <linux/vmalloc.h>
 
-#include <drm/drm_accel.h>
+#include <drm/drm.h>
 #include <drm/drm_drv.h>
+#include <drm/drm_file.h>
 #include <drm/drm_gem.h>
 #include <drm/drm_ioctl.h>
 
 #include "drm/ane.h"
 #include "drm/ane_tm.h"
 
-#include "ane_onnx.h"
-
-#include "ane_onnx.h"
-
 #define CMD_BUF_BDX 0
 #define KRN_BUF_BDX 1
-
-#define ANE_SUBMIT_FLAG_ONNX BIT(0)
 
 struct ane_bo {
 	struct drm_gem_object base;
@@ -42,25 +34,9 @@ struct ane_bo {
 static struct ane_bo *bo_lookup(struct drm_file *file, u32 handle)
 {
 	struct drm_gem_object *gem = drm_gem_object_lookup(file, handle);
-
 	if (!gem)
 		return NULL;
-
 	return to_bo(gem);
-}
-
-static void *ane_bo_vmap(struct ane_bo *bo)
-{
-	if (!bo->pages || !bo->npages)
-		return NULL;
-
-	return vmap(bo->pages, bo->npages, VM_MAP, PAGE_KERNEL);
-}
-
-static void ane_bo_vunmap(void *addr)
-{
-	if (addr)
-		vunmap(addr);
 }
 
 static void ane_iommu_invalidate_tlb(struct ane_device *ane)
@@ -249,60 +225,6 @@ static int ane_bo_free(struct drm_device *drm, void *data,
 	return 0;
 }
 
-static int ane_submit_prepare_onnx(struct ane_device *ane, struct drm_file *file,
-				   struct drm_ane_submit *args)
-{
-	struct ane_bo *bo;
-	struct ane_onnx_payload payload;
-	void *vaddr;
-	size_t bo_size;
-	size_t cmd_aligned;
-	u8 *dst;
-	int err;
-
-	bo = bo_lookup(file, args->handles[CMD_BUF_BDX]);
-	if (!bo)
-		return -EINVAL;
-
-	vaddr = ane_bo_vmap(bo);
-	if (!vaddr)
-		return -ENOMEM;
-
-	bo_size = (size_t)bo->npages << PAGE_SHIFT;
-
-	err = ane_onnx_translate(vaddr, bo_size, &payload);
-	if (err)
-		goto out_unmap;
-
-	cmd_aligned = round_up(payload.microcode_size, ANE_CMD_GRAN);
-	if (cmd_aligned + payload.weights_size > bo_size) {
-		err = -EINVAL;
-		goto out_payload;
-	}
-
-	dst = vaddr;
-	memcpy(dst, payload.microcode, payload.microcode_size);
-	if (cmd_aligned > payload.microcode_size)
-		memset(dst + payload.microcode_size, 0,
-		       cmd_aligned - payload.microcode_size);
-
-	if (payload.weights && payload.weights_size)
-		memcpy(dst + cmd_aligned, payload.weights,
-		       payload.weights_size);
-
-	args->tsk_size = payload.microcode_size;
-	args->td_size = payload.td_size;
-	args->td_count = payload.td_count;
-
-	err = 0;
-
-out_payload:
-	ane_onnx_payload_cleanup(&payload);
-out_unmap:
-	ane_bo_vunmap(vaddr);
-	return err;
-}
-
 static int ane_submit(struct drm_device *drm, void *data, struct drm_file *file)
 {
 	struct ane_device *ane = drm->dev_private;
@@ -313,25 +235,11 @@ static int ane_submit(struct drm_device *drm, void *data, struct drm_file *file)
 	struct ane_request req;
 	memset(&req, 0, sizeof(req));
 
-	u32 flags = args->pad;
-	bool use_onnx = flags & ANE_SUBMIT_FLAG_ONNX;
-
-	if (flags & ~ANE_SUBMIT_FLAG_ONNX)
-		return -EINVAL;
-
-	if (!args->handles[CMD_BUF_BDX] || args->handles[KRN_BUF_BDX] ||
-	    !args->btsp_handle)
-		return -EINVAL;
-
-	if (use_onnx) {
-		err = ane_submit_prepare_onnx(ane, file, args);
-		if (err < 0)
-			return err;
-	} else if (!args->tsk_size || !args->td_count || !args->td_size) {
+	if (args->pad || !args->tsk_size || !args->td_count || !args->td_size ||
+	    !args->handles[CMD_BUF_BDX] || args->handles[KRN_BUF_BDX] ||
+	    !args->btsp_handle) {
 		return -EINVAL;
 	}
-
-	args->pad = 0;
 
 	req.qid = 4;
 	req.nid = ANE_FIFO_NID;
@@ -378,9 +286,9 @@ unlock:
 }
 
 static const struct drm_ioctl_desc ane_drm_ioctls[] = {
-	DRM_IOCTL_DEF_DRV(ANE_BO_INIT, ane_bo_init, 0),
-	DRM_IOCTL_DEF_DRV(ANE_BO_FREE, ane_bo_free, 0),
-	DRM_IOCTL_DEF_DRV(ANE_SUBMIT, ane_submit, 0),
+	DRM_IOCTL_DEF_DRV(ANE_BO_INIT, ane_bo_init, DRM_RENDER_ALLOW),
+	DRM_IOCTL_DEF_DRV(ANE_BO_FREE, ane_bo_free, DRM_RENDER_ALLOW),
+	DRM_IOCTL_DEF_DRV(ANE_SUBMIT, ane_submit, DRM_RENDER_ALLOW),
 };
 
 static int ane_drm_open(struct drm_device *drm, struct drm_file *file)
@@ -467,7 +375,7 @@ static int ane_drm_mmap(struct file *file, struct vm_area_struct *vma)
 
 static const struct file_operations ane_drm_fops = {
 	.owner = THIS_MODULE,
-	.open = accel_open,
+	.open = drm_open,
 	.release = drm_release,
 	.unlocked_ioctl = ane_drm_unlocked_ioctl,
 	.compat_ioctl = drm_compat_ioctl,
@@ -478,7 +386,7 @@ static const struct file_operations ane_drm_fops = {
 };
 
 static const struct drm_driver ane_drm_driver = {
-	.driver_features = DRIVER_GEM | DRIVER_COMPUTE_ACCEL,
+	.driver_features = DRIVER_GEM | DRIVER_RENDER,
 	.open = ane_drm_open,
 	.postclose = ane_drm_postclose,
 	.ioctls = ane_drm_ioctls,

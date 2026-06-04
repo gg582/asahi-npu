@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Submit an ONNX model to the Apple Neural Engine driver using the helper lib."""
+"""Submit an ONNX or KONNX model to the Apple Neural Engine driver."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from asahi_ane_llm import ANEDevice, parse_ane_metadata, submit_onnx_model
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("model", type=Path, help="Path to the ONNX model to submit")
+    parser.add_argument("model", type=Path, help="Path to the ONNX or KONNX model to submit")
     parser.add_argument(
         "--device",
         default="/dev/dri/renderD129",
